@@ -1,0 +1,72 @@
+"""
+Assume we want to calculate the number of comments of a particular post in
+Hacker News by recursively aggregating the number of descendents.
+"""
+
+import asyncio
+from datetime import datetime
+from typing import Any
+
+import aiohttp
+
+URL_TEMPLATE = "https://hacker-news.firebaseio.com/v0/item/{}.json"
+FETCH_TIMEOUT = 10
+
+
+fetch_counter = 0
+
+
+async def fetch(session: aiohttp.ClientSession, url) -> dict[Any, Any]:
+    global fetch_counter
+    fetch_counter += 1
+    async with session.get(url, timeout=FETCH_TIMEOUT) as response:
+        return await response.json()
+
+
+async def post_number_of_comments(session: aiohttp.ClientSession, post_id: int) -> int:
+    """Retrieve data for current post and recursively for all comments."""
+
+    url = URL_TEMPLATE.format(post_id)
+    now = datetime.now()
+    response = await fetch(session, url)
+    print(
+        f" > Fetching of {post_id} took {(datetime.now() - now).total_seconds()} seconds"
+    )
+
+    if "kids" not in response:  # base case, there are no comments
+        return 0
+
+    # calculate this post's comments as number of comments
+    number_of_comments = len(response["kids"])
+
+    # create recursive tasks for all comments
+    print(f'> Fetching {number_of_comments} child posts of post {post_id}"')
+
+    tasks = [post_number_of_comments(session, kid_id) for kid_id in response["kids"]]
+
+    # schedule the tasks and retrieve results
+    results = await asyncio.gather(*tasks)
+
+    # reduce the descendents comments and add it to this post's
+    number_of_comments += sum(results)
+    print(f"{post_id} > {number_of_comments} comments")
+
+    return number_of_comments
+
+
+async def main() -> None:
+    """Async entry point coroutine."""
+    post_id = 8863
+    now = datetime.now()
+    async with aiohttp.ClientSession() as session:
+        now = datetime.now()
+        comments = await post_number_of_comments(session, post_id)
+        print(
+            f"Calculating comments took {(datetime.now() - now).total_seconds():.2f} seconds and {fetch_counter} fetches"
+        )
+
+    print(f"-- Post {post_id} has {comments} comments")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
